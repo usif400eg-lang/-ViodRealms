@@ -141,6 +141,36 @@ public class FirebaseSyncService {
             } catch (Throwable ignored) {
                 stats.put("tps", 20.0);
             }
+            // MSPT (average tick time). Paper exposes tick times in nanoseconds.
+            try {
+                long[] tickTimes = Bukkit.getServer().getTickTimes();
+                long sum = 0;
+                for (long t : tickTimes) sum += t;
+                double msptMs = (tickTimes.length > 0 ? ((double) sum / tickTimes.length) : 0) / 1_000_000.0;
+                stats.put("mspt", Math.round(msptMs * 100.0) / 100.0);
+            } catch (Throwable ignored) {
+                // Not a Paper server, or API unavailable — leave mspt absent.
+            }
+            // JVM heap usage (MB) so the panel can render a heap bar.
+            try {
+                Runtime rt = Runtime.getRuntime();
+                long usedMb = (rt.totalMemory() - rt.freeMemory()) / (1024L * 1024L);
+                long maxMb = rt.maxMemory() / (1024L * 1024L);
+                stats.put("heapUsedMb", usedMb);
+                stats.put("heapMaxMb", maxMb);
+            } catch (Throwable ignored) {
+            }
+            // Process/system CPU load as a percentage, when the JVM exposes it.
+            try {
+                var osBean = java.lang.management.ManagementFactory.getOperatingSystemMXBean();
+                double load = -1;
+                if (osBean instanceof com.sun.management.OperatingSystemMXBean sun) {
+                    load = sun.getProcessCpuLoad();
+                }
+                if (load < 0) load = osBean.getSystemLoadAverage() / Math.max(1, osBean.getAvailableProcessors());
+                if (load >= 0) stats.put("cpuPercent", Math.round(load * 1000.0) / 10.0);
+            } catch (Throwable ignored) {
+            }
             // Per-world entity/chunk counts.
             List<Map<String, Object>> worldData = new ArrayList<>();
             int totalEntities = 0, totalChunks = 0;
@@ -163,11 +193,15 @@ public class FirebaseSyncService {
             Map<String, Object> bans = plugin.getModerationManager().getBansSnapshot();
             Map<String, Object> whitelist = plugin.getModerationManager().getWhitelistSnapshot();
 
-            // Time-series history point for charts (online count + total waypoints over time).
+            // Time-series history point for charts (performance samples over time).
             Map<String, Object> historyPoint = new HashMap<>();
             historyPoint.put("t", System.currentTimeMillis());
             historyPoint.put("online", onlineCount);
             historyPoint.put("waypoints", (int) stats.get("totalWaypoints"));
+            if (stats.get("tps") != null) historyPoint.put("tps", stats.get("tps"));
+            if (stats.get("mspt") != null) historyPoint.put("mspt", stats.get("mspt"));
+            if (stats.get("cpuPercent") != null) historyPoint.put("cpu", stats.get("cpuPercent"));
+            if (stats.get("heapUsedMb") != null) historyPoint.put("heap", stats.get("heapUsedMb"));
 
             // Category distribution for the pie chart.
             Map<String, Integer> categoryCounts = new HashMap<>();
