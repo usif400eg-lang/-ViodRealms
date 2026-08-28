@@ -1,6 +1,6 @@
-# ViodRealms TPU
+# VoxelPanel
 
-**ViodRealms TPU** is an advanced waypoint, teleportation, and remote-management
+**VoxelPanel** is an advanced waypoint, teleportation, and remote-management
 system for Paper Minecraft servers. It combines a full in-game waypoint suite
 with an optional real-time web dashboard that lets you monitor and control your
 server from anywhere — securely, with automatic connection and zero manual
@@ -18,7 +18,7 @@ polling.
 - [Architecture](#architecture)
 - [Requirements](#requirements)
 - [Installation](#installation)
-- [Connecting to the Dashboard](#connecting-to-the-dashboard)
+- [Connecting to VoxelPanel](#connecting-to-voxelpanel)
 - [Configuration](#configuration)
 - [Commands](#commands)
 - [Permissions](#permissions)
@@ -59,7 +59,7 @@ polling.
 - Multi-server support with a server switcher and per-server connection status
 
 ### Connection System
-- Dashboard-first setup wizard: **Add Server → Generate Config → Download → Install → Restart → Connected**
+- Dashboard-first onboarding: **Create Server → Stop → Add Plugin → Generate Config → Configure → Start & Register**
 - Unique server id + secret auth token issued per server
 - Automatic, near real-time connection with heartbeats
 - Automatic reconnection after network failures (handled by the Firebase SDK)
@@ -79,7 +79,7 @@ Dashboard (static site)  <->  Firebase Realtime Database  <->  Plugin (Paper ser
 - The **dashboard** reads that data live and writes commands back; it never holds
   the Firebase service account. All access is enforced by Firebase Authentication
   and Realtime Database Security Rules.
-- **Authorization** is driven by a dashboard-issued `auth-token`. The plugin
+- **Authorization** is driven by a panel-issued node token (`web.token`). The plugin
   live-watches the token and stands down instantly if it is revoked or rotated —
   without ever throwing on the main server thread.
 
@@ -98,11 +98,11 @@ Dashboard (static site)  <->  Firebase Realtime Database  <->  Plugin (Paper ser
 
 ### 1. Get the plugin JAR
 Download a release JAR, or build it yourself (see [Building from Source](#building-from-source)).
-Pre-built output is placed in `creat plagin/ViodRealmsTPU-1.0.0.jar`.
+Pre-built output is placed in `creat plagin/VoxelPanel-1.0.0.jar`.
 
 ### 2. Install on your server
 1. Copy the JAR into your Paper server's `plugins/` folder.
-2. Start the server once. The plugin creates `plugins/ViodRealmsTPU/` with a
+2. Start the server once. The plugin creates `plugins/VoxelPanel/` with a
    default `config.yml`, language files, and an SQLite database.
 3. Stop the server to edit configuration, or continue to connect the dashboard.
 
@@ -110,31 +110,30 @@ Waypoints work fully offline — the dashboard connection is optional.
 
 ---
 
-## Connecting to the Dashboard
+## Connecting to VoxelPanel
 
-The recommended flow is **dashboard-first**, so the plugin connects automatically
-with no manual pairing:
+Onboarding follows six steps and the plugin registers itself automatically:
 
-1. Open the dashboard and sign in.
-2. Click **Add Server** and enter a name (hosting-panel details are optional).
-3. The wizard generates a complete, ready-to-use `config.yml` containing your
-   unique `server-id` and secret `auth-token`. Copy or download it.
-4. Place the file at `plugins/ViodRealmsTPU/config.yml` on your server.
-5. Restart the server. The wizard shows **Connected** within seconds.
+1. **Create Server** — create the server in VoxelPanel and copy the node token it shows once.
+2. **Stop Server** — stop the Minecraft server.
+3. **Add Plugin** — drop the VoxelPanel jar into the server's `plugins/` directory.
+4. **Generate Config** — start the server once so `plugins/VoxelPanel/config.yml` is generated, then stop it again.
+5. **Configure Plugin** — set `web.url` and `web.token` in `plugins/VoxelPanel/config.yml`.
+6. **Start & Register** — start the server. It registers itself automatically and appears as online in the panel.
 
-To disconnect or rotate credentials, open the server's edit dialog in the
-dashboard and choose **Regenerate config**. The old token stops working
-immediately, and you are given a fresh `config.yml`.
+To disconnect or rotate credentials, open the server's edit dialog in the panel
+and choose **Regenerate config**. The old token stops working immediately, and
+you are given a fresh `config.yml`.
 
 > The Firebase Admin service account key (`firebase-service-account.json`) is
-> required for the plugin to reach Firebase. Keep it private — it is git-ignored
-> and must never be committed or shared.
+> required for the plugin to reach the backend. Keep it private — it is
+> git-ignored and must never be committed or shared.
 
 ---
 
 ## Configuration
 
-All settings live in `plugins/ViodRealmsTPU/config.yml`.
+All settings live in `plugins/VoxelPanel/config.yml`.
 
 | Section | Key | Purpose |
 |---|---|---|
@@ -147,17 +146,19 @@ All settings live in `plugins/ViodRealmsTPU/config.yml`.
 | `compass` | `enabled` / `update-interval` | Compass tracking behavior |
 | `language` | `default` | Default language (`ar` or `en`) |
 | `sounds` | `enabled` | UI and action sounds |
-| `firebase` | `enabled` | Enable the dashboard connection |
-| `firebase` | `database-url` | Firebase Realtime Database URL |
-| `firebase` | `server-id` / `auth-token` | Dashboard-issued credentials |
-| `firebase` | `config-version` | Config format version (set by the dashboard) |
+| `web` | `url` | VoxelPanel backend URL |
+| `web` | `token` | Panel-issued node token that authorizes this server |
+| `web` | `websocket` / `verify-tls` | Realtime channel + TLS verification |
+| `firebase` | `enabled` | Enable the panel connection |
+| `firebase` | `server-id` | Unique server id (auto-generated if blank) |
+| `firebase` | `config-version` | Config format version (set by the panel) |
 | `firebase` | `sync-interval-seconds` | How often live data is pushed |
 | `firebase` | `heartbeat-seconds` | How often the plugin proves it is alive |
 | `panel` | `base-url` / `api-key` / `server-identifier` | Pterodactyl-style power controls |
 
 - `messages.yml`, `ar.yml`, and `en.yml` hold player-facing text and support
   Minecraft color codes.
-- SQLite data is written to `plugins/ViodRealmsTPU/data.db`.
+- SQLite data is written to `plugins/VoxelPanel/data.db`.
 
 ---
 
@@ -184,14 +185,14 @@ All settings live in `plugins/ViodRealmsTPU/config.yml`.
 
 | Permission | Description | Default |
 |---|---|---|
-| `viodrealms.tpu.use` | Access to waypoint commands | everyone |
-| `viodrealms.tpu.admin` | Access to admin commands | op |
-| `viodrealms.tpu.admin.view` | View other players' waypoints | op |
-| `viodrealms.tpu.admin.teleport` | Teleport to other players' waypoints | op |
-| `viodrealms.tpu.admin.rename` | Rename other players' waypoints | op |
-| `viodrealms.tpu.admin.delete` | Delete other players' waypoints | op |
-| `viodrealms.tpu.bypass.delay` | Bypass teleport delay | op |
-| `viodrealms.tpu.bypass.limit` | Bypass the waypoint limit | op |
+| `voxelpanel.use` | Access to waypoint commands | everyone |
+| `voxelpanel.admin` | Access to admin commands | op |
+| `voxelpanel.admin.view` | View other players' waypoints | op |
+| `voxelpanel.admin.teleport` | Teleport to other players' waypoints | op |
+| `voxelpanel.admin.rename` | Rename other players' waypoints | op |
+| `voxelpanel.admin.delete` | Delete other players' waypoints | op |
+| `voxelpanel.bypass.delay` | Bypass teleport delay | op |
+| `voxelpanel.bypass.limit` | Bypass the waypoint limit | op |
 
 ---
 
@@ -223,8 +224,8 @@ All settings live in `plugins/ViodRealmsTPU/config.yml`.
 
 - The dashboard uses **Firebase Authentication + Realtime Database Security Rules**;
   it never ships or holds the Admin service account key.
-- Each server has a unique `server-id` and secret `auth-token`. The plugin proves
-  it holds a matching token and never writes the token back to Firebase.
+- Each server has a unique `server-id` and secret node token (`web.token`). The
+  plugin proves it holds a matching token and never writes the token back.
 - The plugin **live-watches** its authorization. Revoking or rotating the token in
   the dashboard stops all syncing and command execution within seconds.
 - Duplicate or unauthorized connections are detectable via a per-boot `instanceId`.
@@ -255,12 +256,12 @@ libraries to avoid clashing with Paper's own dependencies.
 
 ## Troubleshooting
 
-- **Dashboard shows "Not connected".** Confirm `firebase.database-url`,
-  `server-id`, and `auth-token` match the values the wizard generated, and that
-  the host allows outbound connections to Firebase. The console logs a clear
+- **Panel shows "Not connected".** Confirm `web.url`, `firebase.server-id`,
+  and `web.token` match the values the panel generated, and that
+  the host allows outbound connections to the backend. The console logs a clear
   "LIVE CONNECTION OK" line when reachable.
 - **"Auth token was revoked or rotated".** Copy a fresh `config.yml` from the
-  dashboard's Regenerate config action.
+  panel's Regenerate config action.
 - **SQLite fails to initialize.** Check write permissions on the server directory.
 - **A world is missing.** Teleportation is blocked with a message rather than
   crashing.

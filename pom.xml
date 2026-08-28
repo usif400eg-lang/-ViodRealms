@@ -3,13 +3,13 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.viodrealms</groupId>
-    <artifactId>ViodRealmsTPU</artifactId>
+    <groupId>com.voxelpanel</groupId>
+    <artifactId>VoxelPanel</artifactId>
     <version>1.0.0</version>
     <packaging>jar</packaging>
 
-    <name>ViodRealmsTPU</name>
-    <description>Private waypoint and teleport system for ViodRealms</description>
+    <name>VoxelPanel</name>
+    <description>Private waypoint, teleport, and real-time server-control system for VoxelPanel</description>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -90,27 +90,27 @@
                             <relocations>
                                 <relocation>
                                     <pattern>com.google.common</pattern>
-                                    <shadedPattern>com.viodrealms.tpu.libs.guava</shadedPattern>
+                                    <shadedPattern>com.voxelpanel.libs.guava</shadedPattern>
                                 </relocation>
                                 <relocation>
                                     <pattern>com.google.gson</pattern>
-                                    <shadedPattern>com.viodrealms.tpu.libs.gson</shadedPattern>
+                                    <shadedPattern>com.voxelpanel.libs.gson</shadedPattern>
                                 </relocation>
                                 <relocation>
                                     <pattern>com.google.api</pattern>
-                                    <shadedPattern>com.viodrealms.tpu.libs.googleapi</shadedPattern>
+                                    <shadedPattern>com.voxelpanel.libs.googleapi</shadedPattern>
                                 </relocation>
                                 <relocation>
                                     <pattern>com.google.cloud</pattern>
-                                    <shadedPattern>com.viodrealms.tpu.libs.googlecloud</shadedPattern>
+                                    <shadedPattern>com.voxelpanel.libs.googlecloud</shadedPattern>
                                 </relocation>
                                 <relocation>
                                     <pattern>com.google.firebase</pattern>
-                                    <shadedPattern>com.viodrealms.tpu.libs.firebase</shadedPattern>
+                                    <shadedPattern>com.voxelpanel.libs.firebase</shadedPattern>
                                 </relocation>
                                 <relocation>
                                     <pattern>io.grpc</pattern>
-                                    <shadedPattern>com.viodrealms.tpu.libs.grpc</shadedPattern>
+                                    <shadedPattern>com.voxelpanel.libs.grpc</shadedPattern>
                                 </relocation>
                             </relocations>
                             <filters>

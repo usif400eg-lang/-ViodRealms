@@ -1,85 +1,85 @@
-name: ViodRealmsTPU
+name: VoxelPanel
 version: '2.0.0'
-main: com.viodrealms.tpu.ViodRealmsTPU
+main: com.voxelpanel.VoxelPanel
 api-version: '26.2'
-description: Advanced waypoint and teleportation system for ViodRealms
-author: ViodRealms Team
-website: https://viodrealms.com
+description: Advanced waypoint and teleportation system for VoxelPanel
+author: VoxelPanel Team
+website: https://voxelpanel.io
 
 commands:
   tpu:
     description: Open the waypoint menu or teleport to a waypoint
     usage: /tpu [waypoint name]
-    permission: viodrealms.tpu.use
+    permission: voxelpanel.use
   tpubook:
     description: Get a book listing all commands
     usage: /tpubook
-    permission: viodrealms.tpu.use
+    permission: voxelpanel.use
   waypoint:
     description: Manage private waypoints using commands
     usage: /waypoint <set|del|list|category|icon|share|public> [args]
     aliases: [waypointl, wp]
-    permission: viodrealms.tpu.use
+    permission: voxelpanel.use
   tpuadmin:
     description: Open the administrator menu
     usage: /tpuadmin
-    permission: viodrealms.tpu.admin
+    permission: voxelpanel.admin
   compass:
     description: Toggle compass tracker
     usage: /compass <track|reset>
-    permission: viodrealms.tpu.use
+    permission: voxelpanel.use
   language:
     description: Change your language
     usage: /language [ar|en]
-    permission: viodrealms.tpu.use
+    permission: voxelpanel.use
     aliases: [lang]
   tpe:
     description: Request to teleport to another player
     usage: /tpe <player>
-    permission: viodrealms.tpu.use
+    permission: voxelpanel.use
   tpeaccept:
     description: Accept a pending teleport request
     usage: /tpeaccept
-    permission: viodrealms.tpu.use
+    permission: voxelpanel.use
   tpedeny:
     description: Deny a pending teleport request
     usage: /tpedeny
-    permission: viodrealms.tpu.use
+    permission: voxelpanel.use
   back:
     description: Return to your previous location
     usage: /back
-    permission: viodrealms.tpu.use
+    permission: voxelpanel.use
   shareaccept:
     description: Accept a pending waypoint share
     usage: /shareaccept
-    permission: viodrealms.tpu.use
+    permission: voxelpanel.use
   sharedeny:
     description: Deny a pending waypoint share
     usage: /sharedeny
-    permission: viodrealms.tpu.use
+    permission: voxelpanel.use
 
 permissions:
-  viodrealms.tpu.use:
+  voxelpanel.use:
     description: Allows access to waypoint commands
     default: true
-  viodrealms.tpu.admin:
+  voxelpanel.admin:
     description: Allows access to admin commands
     default: op
-  viodrealms.tpu.admin.view:
+  voxelpanel.admin.view:
     description: Allows viewing other players' waypoints
     default: op
-  viodrealms.tpu.admin.teleport:
+  voxelpanel.admin.teleport:
     description: Allows teleporting to other players' waypoints
     default: op
-  viodrealms.tpu.admin.rename:
+  voxelpanel.admin.rename:
     description: Allows renaming other players' waypoints
     default: op
-  viodrealms.tpu.admin.delete:
+  voxelpanel.admin.delete:
     description: Allows deleting other players' waypoints
     default: op
-  viodrealms.tpu.bypass.delay:
+  voxelpanel.bypass.delay:
     description: Bypass teleport delay
     default: op
-  viodrealms.tpu.bypass.limit:
+  voxelpanel.bypass.limit:
     description: Bypass waypoint limit
     default: op

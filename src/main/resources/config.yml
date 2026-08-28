@@ -51,24 +51,40 @@ gui:
   animation-interval: 2
 
 # ============================================================
-#  ViodRealms Dashboard connection
+#  VoxelPanel connection
 # ------------------------------------------------------------
-#  RECOMMENDED: create your server in the dashboard first
-#  (Add Server), then copy the generated values below.
-#  The dashboard gives you a ready-to-paste config.
+#  RECOMMENDED onboarding (6 steps):
+#   1. Create the server in VoxelPanel and copy the node token
+#      it shows once.
+#   2. Stop the Minecraft server.
+#   3. Drop the VoxelPanel jar into the server's plugins/ folder.
+#   4. Start the server once so plugins/VoxelPanel/config.yml is
+#      generated, then stop it again.
+#   5. Set web.url and web.token below.
+#   6. Start the server. It registers itself automatically and
+#      appears as online in the panel.
 # ============================================================
+web:
+  # Base URL of the VoxelPanel backend (the address the panel reports
+  # for itself). The Minecraft server must be able to reach it.
+  url: "https://viodrealms-tpu-default-rtdb.firebaseio.com"
+  # Node token issued by the panel when you create the server.
+  # If the panel revokes it, the plugin safely disconnects.
+  token: ""
+  # Use the realtime websocket channel. Set to false only if a proxy
+  # blocks upgrades; the plugin then falls back to slower REST batching.
+  websocket: true
+  # Validate the backend TLS certificate. Keep true unless you know why not.
+  verify-tls: true
+
 firebase:
   enabled: true
   service-account-file: "firebase-service-account.json"
-  database-url: "https://viodrealms-tpu-default-rtdb.firebaseio.com"
-  # How often (in seconds) the plugin pushes live data to Firebase (near real-time).
+  # How often (in seconds) the plugin pushes live data to the backend (near real-time).
   sync-interval-seconds: 3
-  # Unique server id from the dashboard (leave blank to auto-generate on first run).
+  # Unique server id from the panel (leave blank to auto-generate on first run).
   server-id: ""
-  # Secure token from the dashboard that authorizes this server.
-  # If the dashboard revokes it, the plugin safely disconnects.
-  auth-token: ""
-  # Config format version (set by the dashboard; used to detect outdated configs).
+  # Config format version (set by the panel; used to detect outdated configs).
   config-version: 2
   # Heartbeat interval (seconds) — how often the plugin proves it's alive.
   heartbeat-seconds: 5

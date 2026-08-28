@@ -1,4 +1,4 @@
-prefix: "&8[&bViodRealms&8] &7"
+prefix: "&8[&bVoxelPanel&8] &7"
 no-permission: "You do not have permission to use that command."
 waypoint-created: "تم إنشاء الـ Waypoint بنجاح."
 waypoint-creation-failed: "Unable to create waypoint right now."

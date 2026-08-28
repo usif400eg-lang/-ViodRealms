@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title ViodRealms TPU - Plugin Builder
+title VoxelPanel - Plugin Builder
 
 set "PROJECT_DIR=%~dp0"
 set "OUTPUT_DIR=%PROJECT_DIR%creat plagin"
@@ -12,7 +12,7 @@ set "MAVEN_REPOSITORY=-Dmaven.repo.local=%PROJECT_DIR%.maven-repository"
 
 echo.
 echo ============================================
-echo   Building ViodRealms TPU plugin...
+echo   Building VoxelPanel plugin...
 echo ============================================
 echo.
 
@@ -51,8 +51,8 @@ if errorlevel 1 (
 )
 
 set "PLUGIN_JAR="
-for %%F in ("%TARGET_DIR%\ViodRealmsTPU-*.jar") do (
-    if /I not "%%~nxF"=="original-ViodRealmsTPU-1.0.0.jar" set "PLUGIN_JAR=%%~fF"
+for %%F in ("%TARGET_DIR%\VoxelPanel-*.jar") do (
+    if /I not "%%~nxF"=="original-VoxelPanel-1.0.0.jar" set "PLUGIN_JAR=%%~fF"
 )
 
 if not defined PLUGIN_JAR (
