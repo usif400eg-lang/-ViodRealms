@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ViodRealms TPU — Waypoints, Teleport & Real-Time Server Control</title>
+  <meta name="description" content="ViodRealms TPU is an advanced waypoint, teleportation, and remote-management system for Paper Minecraft servers, with a real-time web dashboard.">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="bg-grid" aria-hidden="true"></div>
+
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="#top">
+        <span class="brand-logo">VR</span>
+        <span class="brand-name">ViodRealms <span>TPU</span></span>
+      </a>
+      <nav class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#how">How it works</a>
+        <a href="#install">Install</a>
+        <a href="#dashboard">Dashboard</a>
+        <a class="nav-cta" href="https://github.com/usif400eg-lang/ViodRealm-dashboard" target="_blank" rel="noopener">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="top">
+    <!-- Hero -->
+    <section class="hero">
+      <div class="container hero-inner">
+        <span class="badge">Paper 1.21.1 &middot; Java 21 &middot; v2.0.0</span>
+        <h1>Waypoints, teleportation, and real-time control for your Paper server.</h1>
+        <p class="lead">
+          A complete in-game waypoint suite plus a secure web dashboard that lets you
+          monitor and manage your Minecraft server from anywhere — with automatic
+          connection, live data, and instant credential revocation.
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="#install">Get Started</a>
+          <a class="btn btn-ghost" href="#features">Explore Features</a>
+        </div>
+        <div class="hero-stats">
+          <div><strong>12+</strong><span>commands</span></div>
+          <div><strong>2</strong><span>languages</span></div>
+          <div><strong>Real-time</strong><span>dashboard sync</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features -->
+    <section id="features" class="section">
+      <div class="container">
+        <h2 class="section-title">Everything your server needs</h2>
+        <p class="section-sub">Two parts, one product: a Paper plugin and a real-time web dashboard.</p>
+
+        <div class="cards">
+          <article class="card">
+            <div class="card-ic">🧭</div>
+            <h3>Private Waypoints</h3>
+            <p>Per-player waypoints with SQLite persistence, categories, custom icons, search, and pagination.</p>
+          </article>
+          <article class="card">
+            <div class="card-ic">⚡</div>
+            <h3>Safe Teleportation</h3>
+            <p>Optional delay, cooldown, safe-teleport checks, particle effects, and countdown titles.</p>
+          </article>
+          <article class="card">
+            <div class="card-ic">💀</div>
+            <h3>Death Waypoints</h3>
+            <p>Automatic death markers with expiry, auto-delete on visit, and compass tracking.</p>
+          </article>
+          <article class="card">
+            <div class="card-ic">🤝</div>
+            <h3>Sharing & Warps</h3>
+            <p>Public server warps and player-to-player waypoint sharing with accept/deny requests.</p>
+          </article>
+          <article class="card">
+            <div class="card-ic">📊</div>
+            <h3>Live Dashboard</h3>
+            <p>TPS, uptime, online players, worlds, analytics, and an auditable activity log in real time.</p>
+          </article>
+          <article class="card">
+            <div class="card-ic">🛡️</div>
+            <h3>Moderation & Console</h3>
+            <p>Bans, whitelist, live console with command execution, file manager, and plugin installs.</p>
+          </article>
+          <article class="card">
+            <div class="card-ic">🔌</div>
+            <h3>Power Controls</h3>
+            <p>Start, stop, restart, and kill through a Pterodactyl-style panel API.</p>
+          </article>
+          <article class="card">
+            <div class="card-ic">🌐</div>
+            <h3>Multi-Server</h3>
+            <p>Manage many servers from one panel with a switcher and per-server connection status.</p>
+          </article>
+          <article class="card">
+            <div class="card-ic">🗣️</div>
+            <h3>Multi-Language</h3>
+            <p>Arabic and English, switchable per player with fully translatable messages.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- How it works -->
+    <section id="how" class="section section-alt">
+      <div class="container">
+        <h2 class="section-title">Connect in six steps</h2>
+        <p class="section-sub">Dashboard-first setup means the plugin connects automatically — no manual pairing.</p>
+
+        <ol class="steps">
+          <li><span class="step-n">1</span><div><h4>Add Server</h4><p>Create the server in the dashboard.</p></div></li>
+          <li><span class="step-n">2</span><div><h4>Generate Config</h4><p>Get a complete <code>config.yml</code> with a unique id and secret token.</p></div></li>
+          <li><span class="step-n">3</span><div><h4>Download</h4><p>Copy or download the generated file.</p></div></li>
+          <li><span class="step-n">4</span><div><h4>Install</h4><p>Place it at <code>plugins/ViodRealmsTPU/config.yml</code>.</p></div></li>
+          <li><span class="step-n">5</span><div><h4>Restart</h4><p>Restart the server to load the credentials.</p></div></li>
+          <li><span class="step-n">6</span><div><h4>Connected</h4><p>The dashboard shows a live status within seconds.</p></div></li>
+        </ol>
+
+        <div class="arch">
+          <div class="arch-node">Dashboard</div>
+          <div class="arch-link">&harr;</div>
+          <div class="arch-node">Firebase RTDB</div>
+          <div class="arch-link">&harr;</div>
+          <div class="arch-node">Plugin</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Install -->
+    <section id="install" class="section">
+      <div class="container">
+        <h2 class="section-title">Installation</h2>
+        <p class="section-sub">Waypoints work fully offline — the dashboard is optional.</p>
+
+        <div class="install-grid">
+          <div class="install-col">
+            <h3>1. Build or download</h3>
+            <p>Grab a release JAR, or build from source with Maven:</p>
+            <pre class="code"><code>mvn clean package</code></pre>
+            <p>On Windows, <code>build-plugin.cmd</code> builds and copies the JAR for you.</p>
+          </div>
+          <div class="install-col">
+            <h3>2. Install on Paper</h3>
+            <pre class="code"><code># Copy the JAR into your server
+cp ViodRealmsTPU-1.0.0.jar server/plugins/
+
+# Start the server once to generate config
+# plugins/ViodRealmsTPU/config.yml</code></pre>
+          </div>
+          <div class="install-col">
+            <h3>3. Connect (optional)</h3>
+            <p>Use the dashboard wizard to generate <code>config.yml</code>, drop it into
+              <code>plugins/ViodRealmsTPU/</code>, and restart. Done.</p>
+          </div>
+        </div>
+
+        <div class="req">
+          <h3>Requirements</h3>
+          <ul>
+            <li>Paper for Minecraft <strong>1.21.1</strong></li>
+            <li><strong>Java 21+</strong></li>
+            <li>Maven 3.9+ (to build from source)</li>
+            <li>A Firebase project (for the dashboard)</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Commands -->
+    <section class="section section-alt">
+      <div class="container">
+        <h2 class="section-title">Commands</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Command</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><code>/tpu [name]</code></td><td>Open the waypoint menu or teleport to a waypoint</td></tr>
+              <tr><td><code>/waypoint</code> (<code>/wp</code>)</td><td>Manage waypoints: set, del, list, category, icon, share, public</td></tr>
+              <tr><td><code>/tpuadmin</code></td><td>Open the administrator menu</td></tr>
+              <tr><td><code>/compass &lt;track|reset&gt;</code></td><td>Toggle the compass tracker</td></tr>
+              <tr><td><code>/language [ar|en]</code></td><td>Change your language</td></tr>
+              <tr><td><code>/tpe &lt;player&gt;</code></td><td>Request to teleport to another player</td></tr>
+              <tr><td><code>/back</code></td><td>Return to your previous location</td></tr>
+              <tr><td><code>/tpubook</code></td><td>Get a book listing all commands</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Dashboard / security -->
+    <section id="dashboard" class="section">
+      <div class="container">
+        <h2 class="section-title">Secure by design</h2>
+        <p class="section-sub">The dashboard never holds the Firebase service account. Access is enforced by Auth + Security Rules.</p>
+        <div class="cards cards-3">
+          <article class="card">
+            <div class="card-ic">🔑</div>
+            <h3>Token authorization</h3>
+            <p>Each server gets a unique id and secret token. The plugin proves it holds a matching token and never writes it back.</p>
+          </article>
+          <article class="card">
+            <div class="card-ic">⏱️</div>
+            <h3>Instant revocation</h3>
+            <p>The plugin live-watches its token. Revoke or rotate it and syncing stops within seconds — no server crash.</p>
+          </article>
+          <article class="card">
+            <div class="card-ic">🧩</div>
+            <h3>Duplicate detection</h3>
+            <p>A per-boot instance id exposes fake or duplicated connections using the same credentials.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="brand">
+        <span class="brand-logo">VR</span>
+        <span class="brand-name">ViodRealms <span>TPU</span></span>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/usif400eg-lang/ViodRealm-dashboard" target="_blank" rel="noopener">GitHub</a>
+        <a href="#install">Install</a>
+        <a href="#features">Features</a>
+      </div>
+      <p class="footer-copy">ViodRealms &copy; 2026 &middot; Paper 1.21.1 &middot; Java 21</p>
+    </div>
+  </footer>
+</body>
+</html>

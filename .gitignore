@@ -1,0 +1,30 @@
+# Build output
+target/
+*.jar
+
+# Firebase service account key — NEVER commit this
+src/main/resources/firebase-service-account.json
+firebase-service-account.json
+**/firebase-service-account.json
+# Any Firebase Admin SDK key (matches *-firebase-adminsdk-*.json)
+*firebase-adminsdk*.json
+**/*firebase-adminsdk*.json
+
+# Nested dashboard repo (managed as its own git repository)
+/dashboard/
+
+# npm
+node_modules/
+
+# Local Maven/tooling
+.maven-repository/
+.tools/
+
+# Plugin runtime data
+*.db
+players.yml
+
+# IDE
+.idea/
+*.iml
+.vscode/

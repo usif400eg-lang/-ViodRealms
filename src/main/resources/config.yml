@@ -1,0 +1,101 @@
+waypoints:
+  max-per-player: 10
+  max-name-length: 32
+  max-per-category: 0
+  categories:
+    - MINE
+    - BASE
+    - FARM
+    - OTHER
+  default-icon: "ENDER_PEARL"
+
+teleport:
+  delay: 0
+  cancel-on-move: false
+  safe-teleport: true
+  particle-effects: true
+  countdown-title: true
+  cooldown-seconds: 0
+
+tpa:
+  expiry-seconds: 60
+
+share:
+  expiry-seconds: 60
+
+death-waypoints:
+  enabled: true
+  expiry-seconds: 300
+  auto-delete-on-visit: true
+  track-compass: true
+
+compass:
+  enabled: true
+  update-interval: 20
+
+language:
+  default: ar
+
+sounds:
+  enabled: true
+  menu-open: "BLOCK_NOTE_BLOCK_PLING"
+  success: "ENTITY_PLAYER_LEVELUP"
+  teleport: "ENTITY_ENDERMAN_TELEPORT"
+  delete: "BLOCK_ANVIL_LAND"
+  error: "ENTITY_VILLAGER_NO"
+  confirm: "UI_BUTTON_CLICK"
+  cancel: "BLOCK_NOTE_BLOCK_BASS"
+
+gui:
+  animated: true
+  animation-interval: 2
+
+# ============================================================
+#  ViodRealms Dashboard connection
+# ------------------------------------------------------------
+#  RECOMMENDED: create your server in the dashboard first
+#  (Add Server), then copy the generated values below.
+#  The dashboard gives you a ready-to-paste config.
+# ============================================================
+firebase:
+  enabled: true
+  service-account-file: "firebase-service-account.json"
+  database-url: "https://viodrealms-tpu-default-rtdb.firebaseio.com"
+  # How often (in seconds) the plugin pushes live data to Firebase (near real-time).
+  sync-interval-seconds: 3
+  # Unique server id from the dashboard (leave blank to auto-generate on first run).
+  server-id: ""
+  # Secure token from the dashboard that authorizes this server.
+  # If the dashboard revokes it, the plugin safely disconnects.
+  auth-token: ""
+  # Config format version (set by the dashboard; used to detect outdated configs).
+  config-version: 2
+  # Heartbeat interval (seconds) — how often the plugin proves it's alive.
+  heartbeat-seconds: 5
+
+# File manager: which folders/extensions the dashboard may browse/edit.
+files:
+  enabled: true
+  # Max size (KB) of a text file the dashboard may open/edit.
+  max-edit-kb: 512
+  # Only these extensions can be opened as text and edited.
+  editable-extensions:
+    - yml
+    - yaml
+    - properties
+    - json
+    - txt
+    - conf
+    - cfg
+    - toml
+
+# Hosting panel API for start/stop/restart (e.g. Pterodactyl).
+# The plugin cannot start itself once stopped, so start/restart go through the panel API.
+panel:
+  enabled: false
+  # Pterodactyl-style client API. Example: https://panel.example.com
+  base-url: ""
+  # Client API key (Account > API Credentials). Keep this secret.
+  api-key: ""
+  # The server identifier in the panel (short id shown in the panel URL).
+  server-identifier: ""
