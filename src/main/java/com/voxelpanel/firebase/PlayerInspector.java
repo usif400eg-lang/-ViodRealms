@@ -87,18 +87,61 @@ public class PlayerInspector {
         }
         m.put("type", item.getType().name());
         m.put("amount", item.getAmount());
-        if (item.hasItemMeta() && item.getItemMeta().hasDisplayName()) {
-            m.put("name", item.getItemMeta().getDisplayName());
+
+        if (item.hasItemMeta()) {
+            var meta = item.getItemMeta();
+            if (meta.hasDisplayName()) {
+                m.put("name", meta.getDisplayName());
+            }
+            // Lore lines (already-formatted item description), color codes stripped client-side.
+            if (meta.hasLore() && meta.getLore() != null) {
+                m.put("lore", new ArrayList<>(meta.getLore()));
+            }
+            // Durability: how much of the tool/armor is left.
+            if (meta instanceof org.bukkit.inventory.meta.Damageable dmg && dmg.hasDamage()) {
+                int max = item.getType().getMaxDurability();
+                if (max > 0) {
+                    m.put("durability", max - dmg.getDamage());
+                    m.put("maxDurability", max);
+                }
+            }
         }
-        // Mark enchanted items so the dashboard can render the glow animation.
-        boolean enchanted = item.getEnchantments() != null && !item.getEnchantments().isEmpty();
+
+        // Enchantments as a readable name -> level map (works for normal + stored/book enchants).
+        Map<String, Object> ench = new HashMap<>();
+        item.getEnchantments().forEach((e, lvl) -> ench.put(enchantName(e), lvl));
         if (item.hasItemMeta() && item.getItemMeta() instanceof org.bukkit.inventory.meta.EnchantmentStorageMeta esm) {
-            enchanted = enchanted || esm.hasStoredEnchants();
+            esm.getStoredEnchants().forEach((e, lvl) -> ench.put(enchantName(e), lvl));
         }
-        if (enchanted) {
+        if (!ench.isEmpty()) {
             m.put("enchanted", true);
+            m.put("enchants", ench);
         }
         return m;
+    }
+
+    /** Human-readable enchantment name (e.g. "Sharpness") across API versions. */
+    private String enchantName(org.bukkit.enchantments.Enchantment e) {
+        try {
+            // Modern API exposes a display name.
+            var mName = e.getClass().getMethod("getDisplayName", int.class);
+            // Not always present; ignore and use the key below.
+        } catch (Throwable ignored) {
+        }
+        String key;
+        try {
+            key = e.getKey().getKey(); // e.g. "sharpness", "fire_protection"
+        } catch (Throwable t) {
+            key = e.getName();
+        }
+        if (key == null || key.isBlank()) return "Enchant";
+        String[] parts = key.toLowerCase().split("[_\\s]+");
+        StringBuilder sb = new StringBuilder();
+        for (String p : parts) {
+            if (p.isEmpty()) continue;
+            sb.append(Character.toUpperCase(p.charAt(0))).append(p.substring(1)).append(' ');
+        }
+        return sb.toString().trim();
     }
 
     private String sanitize(String key) {
