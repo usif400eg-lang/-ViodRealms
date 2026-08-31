@@ -143,77 +143,85 @@ public class BackupService {
     private long archiveServerRoot(Path root, Path archive) throws IOException {
         final Path archiveAbs = archive.toAbsolutePath().normalize();
 
-        // Collect the file list FIRST and fully close the walk stream, so the lazy
-        // directory walk never interleaves with writes to the ZipOutputStream.
+        // 1) Traverse first and fully close the walk stream, so lazy directory
+        //    iteration never interleaves with writes to the ZipOutputStream.
+        //    Files.walk itself is wrapped so a traversal error can't propagate raw.
         java.util.List<Path> files = new java.util.ArrayList<>();
         try (Stream<Path> s = Files.walk(root)) {
-            s.filter(Files::isRegularFile).forEach(files::add);
+            s.filter(p -> {
+                try { return Files.isRegularFile(p); } catch (Exception ignored) { return false; }
+            }).forEach(files::add);
+        } catch (Exception walkErr) {
+            plugin.getLogger().warning("[Backup] Directory walk warning: " + walkErr.getMessage());
         }
         long total = Math.max(1, files.size());
         long done = 0;
 
-        // Dedupe entry names: a duplicate name makes putNextEntry throw and would
-        // otherwise abort the archive.
+        // Dedupe entry names (a duplicate makes putNextEntry throw).
         java.util.Set<String> usedNames = new java.util.HashSet<>();
 
-        // ONE ZipOutputStream/Deflater for the whole archive, owned solely by this
-        // try-with-resources. No inner code ever closes it.
-        try (OutputStream fileOut = Files.newOutputStream(archive);
-             ZipOutputStream zos = new ZipOutputStream(fileOut)) {
-            zos.setLevel(4); // default compression for normal files
+        // 2) ONE ZipOutputStream/Deflater for the whole archive, created fresh here
+        //    and owned solely by this try-with-resources. The compression level is
+        //    set ONCE (never mutated per-entry), and no inner code closes the stream.
+        final byte[] buffer = new byte[8192];
+        try (OutputStream rawOut = Files.newOutputStream(archive);
+             java.io.BufferedOutputStream bufferedOut = new java.io.BufferedOutputStream(rawOut, 1 << 16);
+             ZipOutputStream zos = new ZipOutputStream(bufferedOut)) {
+            zos.setLevel(java.util.zip.Deflater.DEFAULT_COMPRESSION);
 
-            byte[] buf = new byte[64 * 1024];
             for (Path p : files) {
                 checkCancelled();   // safe stop point between files
                 done++;
-                Path abs = p.toAbsolutePath().normalize();
-                if (abs.equals(archiveAbs)) continue;                 // never archive our own output
-                String fn = p.getFileName().toString();
-                if (fn.equals("session.lock")) continue;              // volatile lock
 
-                String rel = root.relativize(p).toString().replace('\\', '/');
-                if (rel.isEmpty() || !usedNames.add(rel)) continue;   // skip empties / duplicates
-
+                // Resolve/skip decisions are wrapped so nothing here can throw out.
+                String rel;
                 long fileSize = 0;
-                try { fileSize = Files.size(p); } catch (Exception ignored) {}
+                try {
+                    Path abs = p.toAbsolutePath().normalize();
+                    if (abs.equals(archiveAbs)) continue;                 // never archive our own output
+                    String fn = p.getFileName().toString();
+                    if (fn.equals("session.lock")) continue;              // volatile lock
+                    rel = root.relativize(p).toString().replace('\\', '/');
+                    if (rel.isEmpty() || !usedNames.add(rel)) continue;   // empties / duplicates
+                    try { fileSize = Files.size(p); } catch (Exception ignored) {}
+                } catch (Exception meta) {
+                    plugin.getLogger().fine("[Backup] Skipped (meta) " + p + ": " + meta.getMessage());
+                    continue;
+                }
 
-                // Already-compressed formats gain nothing from deflate and cost CPU;
-                // store them (level 0) so big JARs stream fast and reliably.
-                boolean precompressed = matchesExt(fn, ".jar", ".zip", ".gz", ".tgz", ".xz", ".rar", ".7z",
-                        ".png", ".jpg", ".jpeg", ".webp", ".ogg", ".mp3");
-                zos.setLevel(precompressed ? 0 : 4);
-
+                // 3) Per-entry: putNextEntry -> stream bytes -> closeEntry.
+                //    A read failure on a locked/active file (logs, sockets) is caught
+                //    and the file is skipped with a warning; the entry is still closed
+                //    so the outer ZipOutputStream/Deflater stays valid and open.
                 boolean entryOpen = false;
                 try {
                     zos.putNextEntry(new ZipEntry(rel));
                     entryOpen = true;
                     publishFile(rel, 0, fileSize, false);
-                    // Open the source in its own try-with-resources: a read failure
-                    // here is contained and never touches the outer ZipOutputStream.
                     try (InputStream in = Files.newInputStream(p)) {
                         int n; long written = 0, lastPush = 0;
-                        while ((n = in.read(buf)) > 0) {
-                            zos.write(buf, 0, n);
+                        while ((n = in.read(buffer)) > 0) {
+                            zos.write(buffer, 0, n);
                             written += n;
                             if (fileSize > 262144 && written - lastPush >= 400 * 1024) {
                                 lastPush = written;
                                 publishFile(rel, written, fileSize, false);
-                                // Mid-file stop point for very large files.
-                                if (cancelRequested) break;
+                                if (cancelRequested) break;   // mid-file stop for huge files
                             }
                         }
                     } catch (Exception readErr) {
-                        // File vanished/locked/changed mid-read. The entry was already
-                        // opened, so we must close it to keep the zip stream valid.
-                        plugin.getLogger().fine("[Backup] Read issue for " + rel + ": " + readErr.getMessage());
+                        // Locked / active / vanished file — skip it, keep the archive valid.
+                        plugin.getLogger().warning("[Backup] Skipped unreadable file " + rel + ": " + readErr.getMessage());
+                    } finally {
+                        // Always close the entry we opened, exactly once. This closes
+                        // only the current entry, never the ZipOutputStream itself.
+                        if (entryOpen) { zos.closeEntry(); entryOpen = false; }
                     }
-                    zos.closeEntry();       // safe: closes only the current entry, not the stream
-                    entryOpen = false;
                     publishFile(rel, fileSize, fileSize, true);
                 } catch (Exception entryErr) {
-                    // putNextEntry/closeEntry failed for this one file. Try to close the
-                    // dangling entry, then CONTINUE — the outer stream stays open/usable.
-                    plugin.getLogger().fine("[Backup] Skipped " + rel + ": " + entryErr.getMessage());
+                    // putNextEntry/closeEntry failed for this single file. Do NOT rethrow;
+                    // continue so one bad entry can't abort the whole backup.
+                    plugin.getLogger().warning("[Backup] Skipped entry " + rel + ": " + entryErr.getMessage());
                     if (entryOpen) { try { zos.closeEntry(); } catch (Exception ignored) {} }
                 }
 
@@ -222,13 +230,6 @@ public class BackupService {
             }
         }
         return Files.size(archive);
-    }
-
-    /** True if the file name ends with any of the given extensions (case-insensitive). */
-    private boolean matchesExt(String name, String... exts) {
-        String lower = name.toLowerCase();
-        for (String e : exts) if (lower.endsWith(e)) return true;
-        return false;
     }
 
     /** SHA-256 of the finished archive, as lowercase hex. */
