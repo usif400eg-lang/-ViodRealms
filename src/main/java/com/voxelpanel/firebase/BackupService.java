@@ -114,15 +114,28 @@ public class BackupService {
             java.util.List<Path> files = scanFiles(root);
             long fileCount = files.size();
             lastBackupMtime = latestMtime(files);
-            progress(8, "scanning", "تم فحص " + fileCount + " ملف.");
+            long rawBytes = totalBytes(files);
+            progress(8, "scanning", "تم فحص " + fileCount + " ملف (" + human(rawBytes) + ").");
 
             if (local) {
-                Path dir = plugin.getDataFolder().toPath().resolve("backups");
+                Path dir = backupsDir();
                 Files.createDirectories(dir);
                 purgeOldBackups(dir);
                 archive = dir.resolve(fileName);
             } else {
-                archive = Files.createTempFile("vpbackup-", ".zip");
+                archive = Files.createTempFile(tempDir(), "vpbackup-", ".zip");
+            }
+
+            // PRE-FLIGHT: make sure there is enough free disk space for the archive.
+            // We need roughly the compressed size; estimate ~55% of raw as a safe
+            // floor and require a 200 MB headroom. Fail early with a clear message
+            // instead of dying mid-write with "No space left on device".
+            long needed = (long) (rawBytes * 0.55) + 200L * 1024 * 1024;
+            long free = usableSpace(archive.getParent());
+            if (free > 0 && free < needed) {
+                progress(0, "error", "لا توجد مساحة كافية على القرص: متاح " + human(free)
+                        + " ومطلوب ~" + human(needed) + ". احذف ملفات أو استخدم وجهة أخرى.");
+                return;
             }
 
             // STEP 2 — COMPRESS.
@@ -206,6 +219,47 @@ public class BackupService {
             try { long m = Files.getLastModifiedTime(p).toMillis(); if (m > max) max = m; } catch (Exception ignored) {}
         }
         return max;
+    }
+
+    /** Sum of the raw sizes of all files (for a disk-space pre-flight estimate). */
+    private long totalBytes(java.util.List<Path> files) {
+        long sum = 0;
+        for (Path p : files) {
+            try { sum += Files.size(p); } catch (Exception ignored) {}
+        }
+        return sum;
+    }
+
+    /** Usable free space at a directory, or -1 if it can't be determined. */
+    private long usableSpace(Path dir) {
+        try {
+            Path d = (dir != null) ? dir : serverRoot();
+            return Files.getFileStore(d).getUsableSpace();
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    /** Where local backups are written (configurable; defaults to plugin data dir). */
+    private Path backupsDir() {
+        String custom = plugin.getConfig().getString("backup.local-dir", "");
+        if (custom != null && !custom.isBlank()) {
+            return Path.of(custom).toAbsolutePath().normalize();
+        }
+        return plugin.getDataFolder().toPath().resolve("backups");
+    }
+
+    /** Temp dir for the GDrive archive (configurable; defaults to the JVM temp dir). */
+    private Path tempDir() {
+        String custom = plugin.getConfig().getString("backup.temp-dir", "");
+        try {
+            if (custom != null && !custom.isBlank()) {
+                Path p = Path.of(custom).toAbsolutePath().normalize();
+                Files.createDirectories(p);
+                return p;
+            }
+        } catch (Exception ignored) {}
+        return Path.of(System.getProperty("java.io.tmpdir", ".")).toAbsolutePath().normalize();
     }
 
     // ---- Smart Backup Mode ----

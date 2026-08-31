@@ -124,3 +124,9 @@ backup:
   # Public host/IP the browser should use for download links. Leave blank to
   # auto-detect the server's local address (set this if behind NAT/hosting).
   public-host: ""
+  # Where local (Direct Download) backups are stored. Leave blank to use
+  # plugins/VoxelPanel/backups. Point this at a disk/volume with free space.
+  local-dir: ""
+  # Temp dir used while building the Google Drive archive. Leave blank for the
+  # system temp dir. Set this if the system temp partition is small/full.
+  temp-dir: ""
