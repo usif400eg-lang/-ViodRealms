@@ -139,6 +139,87 @@ public class BackupService {
         if (cancelRequested) throw new BackupCancelled();
     }
 
+    /**
+     * Direct local download: archives the whole server root to a temp .zip and
+     * serves it over a tiny built-in HTTP server. The dashboard shows progress,
+     * then a "Download Backup (.zip)" link. Temp files older than 24h are purged.
+     */
+    public void startLocalBackup(String issuedBy) {
+        if (running) {
+            progress(0, "error", "هناك نسخة احتياطية قيد التنفيذ بالفعل.");
+            return;
+        }
+        running = true;
+        cancelRequested = false;
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            try {
+                progress(1, "starting", "بدء النسخ الاحتياطي...");
+                Path root = serverRoot();
+                String stamp = new java.text.SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new java.util.Date());
+                String fileName = "voxelpanel-backup-" + stamp + ".zip";
+
+                // Store the archive in a dedicated, purged folder inside the plugin data dir.
+                Path dir = plugin.getDataFolder().toPath().resolve("backups");
+                Files.createDirectories(dir);
+                purgeOldBackups(dir);
+                Path archive = dir.resolve(fileName);
+
+                // 1) Archive (0..80% for local, since there's no upload phase).
+                clearFiles();
+                progress(2, "archiving", "أرشفة جذر السيرفر...");
+                long bytes = archiveServerRoot(root, archive);
+                clearFiles();
+
+                // 2) Hash (80..95%).
+                progress(85, "hashing", "حساب SHA-256...");
+                String sha256 = sha256Of(archive);
+
+                // 3) Publish a download link via the built-in HTTP server (95..100%).
+                progress(96, "linking", "تجهيز رابط التحميل...");
+                String token = BackupHttpServer.get(plugin).register(archive, fileName);
+                String url = BackupHttpServer.get(plugin).publicUrl(token);
+
+                Map<String, Object> result = new HashMap<>();
+                result.put("fileName", fileName);
+                result.put("mode", "local");
+                result.put("downloadUrl", url);
+                result.put("sha256", sha256);
+                result.put("size", bytes);
+                result.put("t", System.currentTimeMillis());
+                result.put("by", issuedBy);
+                var ref = firebaseManager.getServerRef();
+                if (ref != null) ref.child("backup").child("result").setValueAsync(result);
+                progress(100, "complete", "اكتمل النسخ الاحتياطي. الملف جاهز للتنزيل.");
+                if (plugin.getActivityLogger() != null) plugin.getActivityLogger().log("backup_local", fileName, issuedBy);
+            } catch (BackupCancelled c) {
+                clearFiles();
+                progress(0, "cancelled", "تم إنهاء العملية بواسطة المستخدم.");
+            } catch (Exception e) {
+                clearFiles();
+                plugin.getLogger().warning("[Backup] Local backup failed: " + e.getMessage());
+                progress(0, "error", "فشل النسخ الاحتياطي: " + (e.getMessage() != null ? e.getMessage() : "خطأ غير معروف"));
+            } finally {
+                running = false;
+                cancelRequested = false;
+            }
+        });
+    }
+
+    /** Deletes backup archives older than 24 hours to protect host disk space. */
+    private void purgeOldBackups(Path dir) {
+        long cutoff = System.currentTimeMillis() - 24L * 60 * 60 * 1000;
+        try (Stream<Path> s = Files.list(dir)) {
+            s.filter(Files::isRegularFile).forEach(p -> {
+                try {
+                    if (p.getFileName().toString().endsWith(".zip")
+                            && Files.getLastModifiedTime(p).toMillis() < cutoff) {
+                        Files.deleteIfExists(p);
+                    }
+                } catch (Exception ignored) {}
+            });
+        } catch (Exception ignored) {}
+    }
+
     /** Streams every file under root into a zip; returns the archive size in bytes. */
     private long archiveServerRoot(Path root, Path archive) throws IOException {
         final Path archiveAbs = archive.toAbsolutePath().normalize();

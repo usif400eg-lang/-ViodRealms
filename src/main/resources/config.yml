@@ -115,3 +115,12 @@ panel:
   api-key: ""
   # The server identifier in the panel (short id shown in the panel URL).
   server-identifier: ""
+
+# Backup options.
+backup:
+  # Port for the built-in download server (Direct Local Download option).
+  # The host must allow inbound access to this port for the download link to work.
+  download-port: 8765
+  # Public host/IP the browser should use for download links. Leave blank to
+  # auto-detect the server's local address (set this if behind NAT/hosting).
+  public-host: ""

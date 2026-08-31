@@ -276,6 +276,9 @@ public class FirebaseCommandListener {
             case "backup_cancel" -> {
                 if (plugin.getBackupService() != null) plugin.getBackupService().cancel(issuedBy);
             }
+            case "backup_local" -> {
+                if (plugin.getBackupService() != null) plugin.getBackupService().startLocalBackup(issuedBy);
+            }
             case "create_public_waypoint" -> {
                 // name:world:x:y:z
                 String[] p = value != null ? value.split(":", 5) : null;
