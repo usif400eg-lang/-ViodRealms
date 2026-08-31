@@ -100,6 +100,8 @@ public class FileManagerBridge {
                               long size = 0;
                               try { size = isDir ? 0 : Files.size(p); } catch (IOException ignored) {}
                               e.put("size", size);
+                              // Last-modified epoch millis, so the dashboard can show "x ago".
+                              try { e.put("mtime", Files.getLastModifiedTime(p).toMillis()); } catch (IOException ignored) {}
                               e.put("editable", !isDir && isEditable(name) && size <= maxEditBytes);
                               entries.add(e);
                           });
