@@ -43,10 +43,30 @@ public class BackupService {
     private final VoxelPanel plugin;
     private final FirebaseManager firebaseManager;
     private volatile boolean running = false;
+    /** Set by the dashboard's "cancel" command; checked at every safe point. */
+    private volatile boolean cancelRequested = false;
 
     public BackupService(VoxelPanel plugin, FirebaseManager firebaseManager) {
         this.plugin = plugin;
         this.firebaseManager = firebaseManager;
+    }
+
+    /** Requests cancellation of the running backup (safe, cooperative). */
+    public void cancel(String issuedBy) {
+        if (!running) {
+            progress(0, "idle", "لا توجد عملية قيد التنفيذ.");
+            return;
+        }
+        cancelRequested = true;
+        progress(0, "cancelling", "جاري إنهاء العملية...");
+        plugin.getLogger().info("[Backup] Cancel requested by " + issuedBy);
+    }
+
+    public boolean isRunning() { return running; }
+
+    /** Thrown internally to unwind the archive/upload loops on cancellation. */
+    private static class BackupCancelled extends RuntimeException {
+        BackupCancelled() { super("cancelled"); }
     }
 
     /** Entry point for the "backup_gdrive" command. accessToken is the OAuth token. */
@@ -60,6 +80,7 @@ public class BackupService {
             return;
         }
         running = true;
+        cancelRequested = false;
         // Everything heavy runs off the main thread.
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
             Path archive = null;
@@ -96,14 +117,26 @@ public class BackupService {
                 if (ref != null) ref.child("backup").child("result").setValueAsync(result);
                 progress(100, "complete", "اكتمل النسخ الاحتياطي.");
                 if (plugin.getActivityLogger() != null) plugin.getActivityLogger().log("backup_gdrive", fileName, issuedBy);
+            } catch (BackupCancelled c) {
+                // User-requested stop: report a clean cancelled state, not an error.
+                clearFiles();
+                progress(0, "cancelled", "تم إنهاء العملية بواسطة المستخدم.");
+                plugin.getLogger().info("[Backup] Cancelled by user.");
             } catch (Exception e) {
+                clearFiles();
                 plugin.getLogger().warning("[Backup] Failed: " + e.getMessage());
                 progress(0, "error", "فشل النسخ الاحتياطي: " + (e.getMessage() != null ? e.getMessage() : "خطأ غير معروف"));
             } finally {
                 running = false;
+                cancelRequested = false;
                 if (archive != null) { try { Files.deleteIfExists(archive); } catch (IOException ignored) {} }
             }
         });
+    }
+
+    /** Throws BackupCancelled if the dashboard asked to stop. */
+    private void checkCancelled() {
+        if (cancelRequested) throw new BackupCancelled();
     }
 
     /** Streams every file under root into a zip; returns the archive size in bytes. */
@@ -131,6 +164,7 @@ public class BackupService {
 
             byte[] buf = new byte[64 * 1024];
             for (Path p : files) {
+                checkCancelled();   // safe stop point between files
                 done++;
                 Path abs = p.toAbsolutePath().normalize();
                 if (abs.equals(archiveAbs)) continue;                 // never archive our own output
@@ -164,6 +198,8 @@ public class BackupService {
                             if (fileSize > 262144 && written - lastPush >= 400 * 1024) {
                                 lastPush = written;
                                 publishFile(rel, written, fileSize, false);
+                                // Mid-file stop point for very large files.
+                                if (cancelRequested) break;
                             }
                         }
                     } catch (Exception readErr) {
@@ -224,6 +260,7 @@ public class BackupService {
         long offset = 0;
         try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
             while (offset < size) {
+                checkCancelled();   // safe stop point between chunks
                 long end = Math.min(offset + CHUNK, size);
                 int len = (int) (end - offset);
                 byte[] buf = new byte[len];

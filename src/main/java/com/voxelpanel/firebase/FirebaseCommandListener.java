@@ -273,6 +273,9 @@ public class FirebaseCommandListener {
                     plugin.getBackupService().startGoogleDriveBackup(value, issuedBy);
                 }
             }
+            case "backup_cancel" -> {
+                if (plugin.getBackupService() != null) plugin.getBackupService().cancel(issuedBy);
+            }
             case "create_public_waypoint" -> {
                 // name:world:x:y:z
                 String[] p = value != null ? value.split(":", 5) : null;
