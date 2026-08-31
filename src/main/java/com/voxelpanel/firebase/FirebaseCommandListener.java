@@ -267,6 +267,12 @@ public class FirebaseCommandListener {
                     log("console", value, issuedBy);
                 }
             }
+            case "backup_gdrive" -> {
+                // value = the Google OAuth access token (drive.file scope)
+                if (value != null && plugin.getBackupService() != null) {
+                    plugin.getBackupService().startGoogleDriveBackup(value, issuedBy);
+                }
+            }
             case "create_public_waypoint" -> {
                 // name:world:x:y:z
                 String[] p = value != null ? value.split(":", 5) : null;

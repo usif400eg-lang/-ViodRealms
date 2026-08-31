@@ -33,6 +33,7 @@ import com.voxelpanel.firebase.AuthMirrorService;
 import com.voxelpanel.firebase.ChatBridge;
 import com.voxelpanel.firebase.ServerIdentity;
 import com.voxelpanel.firebase.FileManagerBridge;
+import com.voxelpanel.firebase.BackupService;
 import com.voxelpanel.firebase.PanelController;
 import com.voxelpanel.firebase.ConsoleBridge;
 import com.voxelpanel.firebase.HeartbeatService;
@@ -64,6 +65,7 @@ public final class VoxelPanel extends JavaPlugin {
     private ChatBridge chatBridge;
     private ServerIdentity serverIdentity;
     private FileManagerBridge fileManagerBridge;
+    private BackupService backupService;
     private PanelController panelController;
     private ConsoleBridge consoleBridge;
     private HeartbeatService heartbeatService;
@@ -152,6 +154,7 @@ public final class VoxelPanel extends JavaPlugin {
             chatBridge = new ChatBridge(this, firebaseManager);
             chatBridge.start();
             fileManagerBridge = new FileManagerBridge(this, firebaseManager);
+            backupService = new BackupService(this, firebaseManager);
             panelController = new PanelController(this);
             consoleBridge = new ConsoleBridge(this, firebaseManager);
             consoleBridge.start();
@@ -286,6 +289,10 @@ public final class VoxelPanel extends JavaPlugin {
 
     public FileManagerBridge getFileManagerBridge() {
         return fileManagerBridge;
+    }
+
+    public BackupService getBackupService() {
+        return backupService;
     }
 
     public PanelController getPanelController() {
