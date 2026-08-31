@@ -71,8 +71,10 @@ public class BackupService {
                 archive = Files.createTempFile("vpbackup-", ".zip");
 
                 // 1) Archive (0..60%).
+                clearFiles();
                 progress(2, "archiving", "أرشفة جذر السيرفر...");
                 long bytes = archiveServerRoot(root, archive);
+                clearFiles();
 
                 // 2) Hash (60..70%).
                 progress(62, "hashing", "حساب SHA-256...");
@@ -124,15 +126,29 @@ public class BackupService {
                     // Skip volatile lock files that can't be read consistently.
                     String fn = p.getFileName().toString();
                     if (fn.equals("session.lock")) { done[0]++; return; }
+                    String rel = root.relativize(p).toString().replace('\\', '/');
+                    long fileSize = 0;
+                    try { fileSize = Files.size(p); } catch (IOException ignored) {}
                     try {
-                        String rel = root.relativize(p).toString().replace('\\', '/');
                         zos.putNextEntry(new ZipEntry(rel));
                         try (InputStream in = Files.newInputStream(p)) {
                             byte[] buf = new byte[64 * 1024];
-                            int n;
-                            while ((n = in.read(buf)) > 0) zos.write(buf, 0, n);
+                            int n; long written = 0; long lastPush = 0;
+                            // Announce the file at 0% so the dashboard console shows a fresh row.
+                            publishFile(rel, 0, fileSize, false);
+                            while ((n = in.read(buf)) > 0) {
+                                zos.write(buf, 0, n);
+                                written += n;
+                                // Throttle per-file byte updates for large files (~every 400 KB).
+                                if (fileSize > 262144 && written - lastPush >= 400 * 1024) {
+                                    lastPush = written;
+                                    publishFile(rel, written, fileSize, false);
+                                }
+                            }
                         }
                         zos.closeEntry();
+                        // Mark this file complete so its row fills to 100% then clears.
+                        publishFile(rel, fileSize, fileSize, true);
                     } catch (IOException perFile) {
                         // A single locked/unreadable file must not abort the whole backup.
                         plugin.getLogger().fine("[Backup] Skipped " + p + ": " + perFile.getMessage());
@@ -314,6 +330,55 @@ public class BackupService {
             p.put("message", message);
             p.put("t", System.currentTimeMillis());
             ref.child("backup").child("progress").setValueAsync(p);
+        } catch (Exception ignored) {
+        }
+    }
+
+    // Rolling counter so the dashboard can order file rows by arrival.
+    private long fileSeq = 0;
+    private final Map<String, String> filePathKeys = new HashMap<>();
+
+    /** Clears all per-file rows (called before and after the archiving phase). */
+    private void clearFiles() {
+        try {
+            var ref = firebaseManager.getServerRef();
+            if (ref != null) ref.child("backup").child("files").removeValueAsync();
+        } catch (Exception ignored) {}
+        filePathKeys.clear();
+    }
+
+    /**
+     * Publishes per-file archiving progress to backup/files/{key}. Each file gets
+     * a live row (name, written/size, percent). When done=true the row is removed
+     * so the dashboard's console shows only the files currently being written.
+     */
+    private void publishFile(String rel, long written, long size, boolean done) {
+        try {
+            var ref = firebaseManager.getServerRef();
+            if (ref == null) return;
+            var filesRef = ref.child("backup").child("files");
+            String key = filePathKeys.computeIfAbsent(rel, k -> "f" + (fileSeq++));
+            if (done) {
+                // Mark 100% + done; the dashboard shows it briefly then removes the row.
+                Map<String, Object> row = new HashMap<>();
+                row.put("name", rel);
+                row.put("written", size);
+                row.put("size", size);
+                row.put("pct", 100);
+                row.put("done", true);
+                row.put("t", System.currentTimeMillis());
+                filesRef.child(key).setValueAsync(row);
+                filePathKeys.remove(rel);
+            } else {
+                Map<String, Object> row = new HashMap<>();
+                row.put("name", rel);
+                row.put("written", written);
+                row.put("size", size);
+                row.put("pct", size > 0 ? (int) Math.min(100, Math.round(written * 100.0 / size)) : 100);
+                row.put("seq", fileSeq);
+                row.put("t", System.currentTimeMillis());
+                filesRef.child(key).setValueAsync(row);
+            }
         } catch (Exception ignored) {
         }
     }
