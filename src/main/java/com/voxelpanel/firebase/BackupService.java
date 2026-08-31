@@ -51,6 +51,7 @@ public class BackupService {
     private volatile String smartDest = "local";       // "local" | "gdrive"
     private volatile String smartToken = null;         // GDrive token (if smartDest=gdrive)
     private volatile String smartName = null;          // optional custom base name
+    private volatile String smartFolder = null;        // optional Drive folder name
     private volatile long lastBackupMtime = 0;         // newest file mtime captured last backup
     private int smartTaskId = -1;
 
@@ -77,22 +78,22 @@ public class BackupService {
         BackupCancelled() { super("cancelled"); }
     }
 
-    /** Entry: Google Drive backup with optional custom file name. */
-    public void startGoogleDriveBackup(String accessToken, String customName, String issuedBy) {
+    /** Entry: Google Drive backup with optional custom file name + target folder. */
+    public void startGoogleDriveBackup(String accessToken, String customName, String folderName, String issuedBy) {
         if (accessToken == null || accessToken.isBlank()) {
             progress(0, "error", "لم يتم استلام توكن Google Drive.");
             return;
         }
         if (running) { progress(0, "error", "هناك نسخة احتياطية قيد التنفيذ بالفعل."); return; }
         running = true; cancelRequested = false;
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> runBackup("gdrive", accessToken, customName, issuedBy, false));
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> runBackup("gdrive", accessToken, customName, folderName, issuedBy, false));
     }
 
     /** Entry: Direct local download backup with optional custom file name. */
     public void startLocalBackup(String customName, String issuedBy) {
         if (running) { progress(0, "error", "هناك نسخة احتياطية قيد التنفيذ بالفعل."); return; }
         running = true; cancelRequested = false;
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> runBackup("local", null, customName, issuedBy, false));
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> runBackup("local", null, customName, null, issuedBy, false));
     }
 
     /**
@@ -101,7 +102,7 @@ public class BackupService {
      *   ->  STEP 3 HASH (SHA-256)  ->  STEP 4 DELIVER (Drive upload or local link).
      * Async; never crashes the server.
      */
-    private void runBackup(String dest, String accessToken, String customName, String issuedBy, boolean smart) {
+    private void runBackup(String dest, String accessToken, String customName, String folderName, String issuedBy, boolean smart) {
         Path archive = null;
         boolean local = "local".equals(dest);
         try {
@@ -149,14 +150,25 @@ public class BackupService {
             String sha256 = sha256Of(archive);
 
             // STEP 4 — DELIVER.
-            String downloadUrl = null, fileId = null;
+            String downloadUrl = null, fileId = null, driveViewUrl = null;
             if (local) {
                 progress(96, "linking", "تجهيز رابط التحميل...");
                 String token = BackupHttpServer.get(plugin).register(archive, fileName);
                 downloadUrl = BackupHttpServer.get(plugin).publicUrl(token);
             } else {
                 progress(70, "uploading", "مزامنة الأجزاء مع Google Drive...");
-                fileId = resumableUpload(accessToken, archive, fileName);
+                // Resolve/create the target Drive folder (if the user named one).
+                String folderId = null;
+                if (folderName != null && !folderName.isBlank()) {
+                    progress(70, "uploading", "تجهيز مجلد Google Drive...");
+                    folderId = ensureDriveFolder(accessToken, folderName.trim());
+                }
+                fileId = resumableUpload(accessToken, archive, fileName, folderId);
+                if (fileId != null && !fileId.isBlank() && !fileId.equals("uploaded")) {
+                    driveViewUrl = "https://drive.google.com/file/d/" + fileId + "/view";
+                } else {
+                    driveViewUrl = "https://drive.google.com/drive/my-drive";
+                }
             }
 
             Map<String, Object> result = new HashMap<>();
@@ -168,6 +180,8 @@ public class BackupService {
             result.put("smart", smart);
             if (downloadUrl != null) result.put("downloadUrl", downloadUrl);
             if (fileId != null) result.put("fileId", fileId);
+            if (driveViewUrl != null) result.put("driveViewUrl", driveViewUrl);
+            if (folderName != null && !folderName.isBlank()) result.put("folder", folderName.trim());
             result.put("t", System.currentTimeMillis());
             result.put("by", issuedBy);
             var ref = firebaseManager.getServerRef();
@@ -264,11 +278,12 @@ public class BackupService {
 
     // ---- Smart Backup Mode ----
     /** Enables/updates smart mode: auto-backup to the chosen destination on change. */
-    public void configureSmart(boolean enabled, String dest, String token, String name, String issuedBy) {
+    public void configureSmart(boolean enabled, String dest, String token, String name, String folder, String issuedBy) {
         this.smartEnabled = enabled;
         if (dest != null) this.smartDest = dest;
         if (token != null) this.smartToken = token;
         this.smartName = name;
+        this.smartFolder = folder;
         publishSmartState();
         if (enabled) {
             startSmartTimer();
@@ -296,7 +311,7 @@ public class BackupService {
             if (newest > lastBackupMtime) {
                 plugin.getLogger().info("[Backup] Smart mode: change detected, backing up to " + smartDest);
                 running = true; cancelRequested = false;
-                runBackup(smartDest, "gdrive".equals(smartDest) ? smartToken : null, smartName, "smart", true);
+                runBackup(smartDest, "gdrive".equals(smartDest) ? smartToken : null, smartName, smartFolder, "smart", true);
             }
         } catch (Exception e) {
             plugin.getLogger().fine("[Backup] Smart tick error: " + e.getMessage());
@@ -429,14 +444,15 @@ public class BackupService {
      * failure we query the server for the last received byte and resume from
      * there — so dropped connections never corrupt or restart the whole upload.
      */
-    private String resumableUpload(String token, Path file, String fileName) throws Exception {
+    private String resumableUpload(String token, Path file, String fileName, String folderId) throws Exception {
         long size = Files.size(file);
 
-        // 1) Start a resumable session.
-        String sessionUri = startSession(token, fileName);
+        // 1) Start a resumable session (optionally inside a target folder).
+        String sessionUri = startSession(token, fileName, folderId);
 
         // 2) Upload chunks with resume-on-failure.
         long offset = 0;
+        String uploadedId = null;
         try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
             while (offset < size) {
                 checkCancelled();   // safe stop point between chunks
@@ -450,32 +466,73 @@ public class BackupService {
                 while (true) {
                     attempt++;
                     try {
-                        long next = putChunk(sessionUri, buf, offset, size);
-                        if (next < 0) {
-                            // Upload finished (200/201 received).
-                            offset = size;
+                        long[] nextHolder = new long[1];
+                        String id = putChunk(sessionUri, buf, offset, size, nextHolder);
+                        if (nextHolder[0] < 0) {
+                            offset = size;         // upload finished
+                            uploadedId = id;       // final chunk returned the file id JSON
                         } else {
-                            offset = next;
+                            offset = nextHolder[0];
                         }
                         break;
                     } catch (Exception chunkErr) {
                         if (attempt >= MAX_RETRIES) throw chunkErr;
-                        // Backoff, then ask Drive how far it got and resume there.
                         Thread.sleep(Math.min(8000, 500L * (1L << attempt)));
                         long resumeAt = queryResumeOffset(sessionUri, size);
                         if (resumeAt >= 0) offset = resumeAt;
                         plugin.getLogger().fine("[Backup] Retry chunk at " + offset + " (attempt " + attempt + ")");
                     }
                 }
-                // Uploading spans 70..99%.
                 int pct = 70 + (int) Math.round((offset / (double) size) * 29);
                 progress(Math.min(99, pct), "uploading", "رفع الأجزاء إلى Google Drive (" + human(offset) + " / " + human(size) + ")...");
             }
         }
-        return "uploaded";
+        return uploadedId != null ? uploadedId : "uploaded";
     }
 
-    private String startSession(String token, String fileName) throws IOException {
+    /**
+     * Finds a Drive folder by name (owned, not trashed), creating it if missing.
+     * Returns the folder id, or null on any failure (upload then goes to root).
+     */
+    private String ensureDriveFolder(String token, String folderName) {
+        try {
+            // Search for an existing folder with this exact name.
+            String q = "mimeType='application/vnd.google-apps.folder' and trashed=false and name='"
+                    + folderName.replace("'", "\\'") + "'";
+            String url = "https://www.googleapis.com/drive/v3/files?q="
+                    + java.net.URLEncoder.encode(q, StandardCharsets.UTF_8) + "&fields=files(id,name)&pageSize=1";
+            HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+            c.setRequestMethod("GET");
+            c.setConnectTimeout(15000); c.setReadTimeout(15000);
+            c.setRequestProperty("Authorization", "Bearer " + token);
+            if (c.getResponseCode() == 200) {
+                String body = new String(c.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+                c.disconnect();
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"id\"\\s*:\\s*\"([^\"]+)\"").matcher(body);
+                if (m.find()) return m.group(1);
+            } else { c.disconnect(); }
+
+            // Not found — create it.
+            HttpURLConnection cr = (HttpURLConnection) new URL("https://www.googleapis.com/drive/v3/files?fields=id").openConnection();
+            cr.setRequestMethod("POST");
+            cr.setConnectTimeout(15000); cr.setReadTimeout(15000); cr.setDoOutput(true);
+            cr.setRequestProperty("Authorization", "Bearer " + token);
+            cr.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            String meta = "{\"name\":\"" + folderName.replace("\"", "") + "\",\"mimeType\":\"application/vnd.google-apps.folder\"}";
+            try (OutputStream os = cr.getOutputStream()) { os.write(meta.getBytes(StandardCharsets.UTF_8)); }
+            if (cr.getResponseCode() == 200 || cr.getResponseCode() == 201) {
+                String body = new String(cr.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+                cr.disconnect();
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"id\"\\s*:\\s*\"([^\"]+)\"").matcher(body);
+                if (m.find()) return m.group(1);
+            } else { cr.disconnect(); }
+        } catch (Exception e) {
+            plugin.getLogger().warning("[Backup] Could not resolve Drive folder '" + folderName + "': " + e.getMessage());
+        }
+        return null; // fall back to Drive root
+    }
+
+    private String startSession(String token, String fileName, String folderId) throws IOException {
         HttpURLConnection c = (HttpURLConnection) new URL(DRIVE_RESUMABLE).openConnection();
         c.setRequestMethod("POST");
         c.setConnectTimeout(15000);
@@ -483,7 +540,8 @@ public class BackupService {
         c.setDoOutput(true);
         c.setRequestProperty("Authorization", "Bearer " + token);
         c.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-        String meta = "{\"name\":\"" + fileName.replace("\"", "") + "\"}";
+        String parents = (folderId != null && !folderId.isBlank()) ? ",\"parents\":[\"" + folderId + "\"]" : "";
+        String meta = "{\"name\":\"" + fileName.replace("\"", "") + "\"" + parents + "}";
         byte[] body = meta.getBytes(StandardCharsets.UTF_8);
         c.setRequestProperty("X-Upload-Content-Type", "application/zip");
         try (OutputStream os = c.getOutputStream()) { os.write(body); }
@@ -497,8 +555,11 @@ public class BackupService {
         return loc;
     }
 
-    /** PUTs one chunk. Returns the next byte offset, or -1 when the upload completed. */
-    private long putChunk(String sessionUri, byte[] chunk, long offset, long total) throws IOException {
+    /**
+     * PUTs one chunk. Sets next[0] to the next byte offset, or -1 when complete.
+     * Returns the response body (file-id JSON) on the final chunk, else null.
+     */
+    private String putChunk(String sessionUri, byte[] chunk, long offset, long total, long[] next) throws IOException {
         HttpURLConnection c = (HttpURLConnection) new URL(sessionUri).openConnection();
         c.setRequestMethod("PUT");
         c.setConnectTimeout(15000);
@@ -510,15 +571,26 @@ public class BackupService {
         c.setRequestProperty("Content-Range", "bytes " + offset + "-" + end + "/" + total);
         try (OutputStream os = c.getOutputStream()) { os.write(chunk); }
         int code = c.getResponseCode();
-        if (code == 200 || code == 201) { c.disconnect(); return -1; }        // done
+        if (code == 200 || code == 201) {                                      // done
+            next[0] = -1;
+            String id = null;
+            try {
+                String body = new String(c.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"id\"\\s*:\\s*\"([^\"]+)\"").matcher(body);
+                if (m.find()) id = m.group(1);
+            } catch (Exception ignored) {}
+            c.disconnect();
+            return id;
+        }
         if (code == 308) {                                                     // resume incomplete
             String range = c.getHeaderField("Range");                          // e.g. "bytes=0-8388607"
             c.disconnect();
             if (range != null && range.contains("-")) {
-                try { return Long.parseLong(range.substring(range.lastIndexOf('-') + 1)) + 1; }
+                try { next[0] = Long.parseLong(range.substring(range.lastIndexOf('-') + 1)) + 1; return null; }
                 catch (NumberFormatException ignored) {}
             }
-            return offset + chunk.length;
+            next[0] = offset + chunk.length;
+            return null;
         }
         String err = readErr(c);
         c.disconnect();
