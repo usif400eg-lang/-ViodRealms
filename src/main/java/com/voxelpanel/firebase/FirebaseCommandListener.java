@@ -268,16 +268,34 @@ public class FirebaseCommandListener {
                 }
             }
             case "backup_gdrive" -> {
-                // value = the Google OAuth access token (drive.file scope)
+                // value = "<accessToken>|<customName>" (name optional)
                 if (value != null && plugin.getBackupService() != null) {
-                    plugin.getBackupService().startGoogleDriveBackup(value, issuedBy);
+                    int i = value.indexOf('|');
+                    String tok = i < 0 ? value : value.substring(0, i);
+                    String name = i < 0 ? null : value.substring(i + 1);
+                    plugin.getBackupService().startGoogleDriveBackup(tok, name, issuedBy);
                 }
             }
             case "backup_cancel" -> {
                 if (plugin.getBackupService() != null) plugin.getBackupService().cancel(issuedBy);
             }
             case "backup_local" -> {
-                if (plugin.getBackupService() != null) plugin.getBackupService().startLocalBackup(issuedBy);
+                // value = optional custom name
+                if (plugin.getBackupService() != null) {
+                    String name = (value != null && !value.equals("1")) ? value : null;
+                    plugin.getBackupService().startLocalBackup(name, issuedBy);
+                }
+            }
+            case "backup_smart" -> {
+                // value = "<enabled>|<dest>|<token>|<name>"  e.g. "on|gdrive|ya29...|MyBackup"
+                if (value != null && plugin.getBackupService() != null) {
+                    String[] parts = value.split("\\|", 4);
+                    boolean on = parts.length > 0 && (parts[0].equals("on") || parts[0].equals("true") || parts[0].equals("1"));
+                    String dest = parts.length > 1 && !parts[1].isBlank() ? parts[1] : "local";
+                    String tok = parts.length > 2 && !parts[2].isBlank() ? parts[2] : null;
+                    String name = parts.length > 3 && !parts[3].isBlank() ? parts[3] : null;
+                    plugin.getBackupService().configureSmart(on, dest, tok, name, issuedBy);
+                }
             }
             case "create_public_waypoint" -> {
                 // name:world:x:y:z

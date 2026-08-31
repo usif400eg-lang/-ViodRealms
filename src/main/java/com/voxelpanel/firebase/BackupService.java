@@ -46,6 +46,14 @@ public class BackupService {
     /** Set by the dashboard's "cancel" command; checked at every safe point. */
     private volatile boolean cancelRequested = false;
 
+    // ---- Smart Backup Mode ----
+    private volatile boolean smartEnabled = false;
+    private volatile String smartDest = "local";       // "local" | "gdrive"
+    private volatile String smartToken = null;         // GDrive token (if smartDest=gdrive)
+    private volatile String smartName = null;          // optional custom base name
+    private volatile long lastBackupMtime = 0;         // newest file mtime captured last backup
+    private int smartTaskId = -1;
+
     public BackupService(VoxelPanel plugin, FirebaseManager firebaseManager) {
         this.plugin = plugin;
         this.firebaseManager = firebaseManager;
@@ -69,140 +77,193 @@ public class BackupService {
         BackupCancelled() { super("cancelled"); }
     }
 
-    /** Entry point for the "backup_gdrive" command. accessToken is the OAuth token. */
-    public void startGoogleDriveBackup(String accessToken, String issuedBy) {
+    /** Entry: Google Drive backup with optional custom file name. */
+    public void startGoogleDriveBackup(String accessToken, String customName, String issuedBy) {
         if (accessToken == null || accessToken.isBlank()) {
             progress(0, "error", "لم يتم استلام توكن Google Drive.");
             return;
         }
-        if (running) {
-            progress(0, "error", "هناك نسخة احتياطية قيد التنفيذ بالفعل.");
-            return;
-        }
-        running = true;
-        cancelRequested = false;
-        // Everything heavy runs off the main thread.
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-            Path archive = null;
-            try {
-                progress(1, "starting", "بدء النسخ الاحتياطي...");
-                Path root = serverRoot();
-                String stamp = new java.text.SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new java.util.Date());
-                String fileName = "voxelpanel-backup-" + stamp + ".zip";
+        if (running) { progress(0, "error", "هناك نسخة احتياطية قيد التنفيذ بالفعل."); return; }
+        running = true; cancelRequested = false;
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> runBackup("gdrive", accessToken, customName, issuedBy, false));
+    }
+
+    /** Entry: Direct local download backup with optional custom file name. */
+    public void startLocalBackup(String customName, String issuedBy) {
+        if (running) { progress(0, "error", "هناك نسخة احتياطية قيد التنفيذ بالفعل."); return; }
+        running = true; cancelRequested = false;
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> runBackup("local", null, customName, issuedBy, false));
+    }
+
+    /**
+     * Unified pipeline for all destinations + smart mode:
+     *   STEP 1 SCAN files  ->  STEP 2 COMPRESS into one named .zip
+     *   ->  STEP 3 HASH (SHA-256)  ->  STEP 4 DELIVER (Drive upload or local link).
+     * Async; never crashes the server.
+     */
+    private void runBackup(String dest, String accessToken, String customName, String issuedBy, boolean smart) {
+        Path archive = null;
+        boolean local = "local".equals(dest);
+        try {
+            progress(1, "starting", smart ? "نسخة تلقائية (Smart)..." : "بدء النسخ الاحتياطي...");
+            Path root = serverRoot();
+            String fileName = buildFileName(customName);
+
+            // STEP 1 — SCAN.
+            progress(3, "scanning", "فحص ملفات السيرفر...");
+            java.util.List<Path> files = scanFiles(root);
+            long fileCount = files.size();
+            lastBackupMtime = latestMtime(files);
+            progress(8, "scanning", "تم فحص " + fileCount + " ملف.");
+
+            if (local) {
+                Path dir = plugin.getDataFolder().toPath().resolve("backups");
+                Files.createDirectories(dir);
+                purgeOldBackups(dir);
+                archive = dir.resolve(fileName);
+            } else {
                 archive = Files.createTempFile("vpbackup-", ".zip");
-
-                // 1) Archive (0..60%).
-                clearFiles();
-                progress(2, "archiving", "أرشفة جذر السيرفر...");
-                long bytes = archiveServerRoot(root, archive);
-                clearFiles();
-
-                // 2) Hash (60..70%).
-                progress(62, "hashing", "حساب SHA-256...");
-                String sha256 = sha256Of(archive);
-
-                // 3) Upload (70..99%).
-                progress(70, "uploading", "مزامنة الأجزاء مع Google Drive...");
-                String fileId = resumableUpload(accessToken, archive, fileName);
-
-                // 4) Done.
-                Map<String, Object> result = new HashMap<>();
-                result.put("fileName", fileName);
-                result.put("fileId", fileId);
-                result.put("sha256", sha256);
-                result.put("size", bytes);
-                result.put("t", System.currentTimeMillis());
-                result.put("by", issuedBy);
-                var ref = firebaseManager.getServerRef();
-                if (ref != null) ref.child("backup").child("result").setValueAsync(result);
-                progress(100, "complete", "اكتمل النسخ الاحتياطي.");
-                if (plugin.getActivityLogger() != null) plugin.getActivityLogger().log("backup_gdrive", fileName, issuedBy);
-            } catch (BackupCancelled c) {
-                // User-requested stop: report a clean cancelled state, not an error.
-                clearFiles();
-                progress(0, "cancelled", "تم إنهاء العملية بواسطة المستخدم.");
-                plugin.getLogger().info("[Backup] Cancelled by user.");
-            } catch (Exception e) {
-                clearFiles();
-                plugin.getLogger().warning("[Backup] Failed: " + e.getMessage());
-                progress(0, "error", "فشل النسخ الاحتياطي: " + (e.getMessage() != null ? e.getMessage() : "خطأ غير معروف"));
-            } finally {
-                running = false;
-                cancelRequested = false;
-                if (archive != null) { try { Files.deleteIfExists(archive); } catch (IOException ignored) {} }
             }
-        });
+
+            // STEP 2 — COMPRESS.
+            clearFiles();
+            progress(10, "archiving", "ضغط الملفات في أرشيف واحد...");
+            long bytes = archiveFiles(root, files, archive, local ? 78 : 58, 10);
+            clearFiles();
+
+            // STEP 3 — HASH.
+            progress(local ? 82 : 62, "hashing", "حساب SHA-256...");
+            String sha256 = sha256Of(archive);
+
+            // STEP 4 — DELIVER.
+            String downloadUrl = null, fileId = null;
+            if (local) {
+                progress(96, "linking", "تجهيز رابط التحميل...");
+                String token = BackupHttpServer.get(plugin).register(archive, fileName);
+                downloadUrl = BackupHttpServer.get(plugin).publicUrl(token);
+            } else {
+                progress(70, "uploading", "مزامنة الأجزاء مع Google Drive...");
+                fileId = resumableUpload(accessToken, archive, fileName);
+            }
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("fileName", fileName);
+            result.put("mode", dest);
+            result.put("sha256", sha256);
+            result.put("size", bytes);
+            result.put("fileCount", fileCount);
+            result.put("smart", smart);
+            if (downloadUrl != null) result.put("downloadUrl", downloadUrl);
+            if (fileId != null) result.put("fileId", fileId);
+            result.put("t", System.currentTimeMillis());
+            result.put("by", issuedBy);
+            var ref = firebaseManager.getServerRef();
+            if (ref != null) ref.child("backup").child("result").setValueAsync(result);
+            progress(100, "complete", local ? "اكتمل النسخ الاحتياطي. الملف جاهز للتنزيل." : "اكتمل النسخ الاحتياطي.");
+            if (plugin.getActivityLogger() != null) plugin.getActivityLogger().log(smart ? "backup_smart" : ("backup_" + dest), fileName, issuedBy);
+        } catch (BackupCancelled c) {
+            clearFiles();
+            progress(0, "cancelled", "تم إنهاء العملية بواسطة المستخدم.");
+        } catch (Exception e) {
+            clearFiles();
+            plugin.getLogger().warning("[Backup] Failed: " + e.getMessage());
+            progress(0, "error", "فشل النسخ الاحتياطي: " + (e.getMessage() != null ? e.getMessage() : "خطأ غير معروف"));
+        } finally {
+            running = false;
+            cancelRequested = false;
+            if (archive != null && !local) { try { Files.deleteIfExists(archive); } catch (IOException ignored) {} }
+        }
+    }
+
+    /** Builds a safe .zip file name from an optional user-provided name. */
+    private String buildFileName(String customName) {
+        String stamp = new java.text.SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new java.util.Date());
+        if (customName != null && !customName.isBlank()) {
+            String safe = customName.trim().replaceAll("[^\\p{L}\\p{N}_\\- ]", "").trim().replace(' ', '_');
+            if (!safe.isEmpty()) {
+                if (safe.toLowerCase().endsWith(".zip")) safe = safe.substring(0, safe.length() - 4);
+                return safe + ".zip";
+            }
+        }
+        return "voxelpanel-backup-" + stamp + ".zip";
+    }
+
+    /** Scans (enumerates) every regular file under root. */
+    private java.util.List<Path> scanFiles(Path root) {
+        java.util.List<Path> files = new java.util.ArrayList<>();
+        try (Stream<Path> s = Files.walk(root)) {
+            s.filter(p -> { try { return Files.isRegularFile(p); } catch (Exception e) { return false; } }).forEach(files::add);
+        } catch (Exception e) {
+            plugin.getLogger().warning("[Backup] Scan warning: " + e.getMessage());
+        }
+        return files;
+    }
+
+    /** Newest last-modified time in the list (smart-mode change detection). */
+    private long latestMtime(java.util.List<Path> files) {
+        long max = 0;
+        for (Path p : files) {
+            try { long m = Files.getLastModifiedTime(p).toMillis(); if (m > max) max = m; } catch (Exception ignored) {}
+        }
+        return max;
+    }
+
+    // ---- Smart Backup Mode ----
+    /** Enables/updates smart mode: auto-backup to the chosen destination on change. */
+    public void configureSmart(boolean enabled, String dest, String token, String name, String issuedBy) {
+        this.smartEnabled = enabled;
+        if (dest != null) this.smartDest = dest;
+        if (token != null) this.smartToken = token;
+        this.smartName = name;
+        publishSmartState();
+        if (enabled) {
+            startSmartTimer();
+            plugin.getLogger().info("[Backup] Smart mode ON (" + smartDest + ") by " + issuedBy);
+        } else {
+            stopSmartTimer();
+            plugin.getLogger().info("[Backup] Smart mode OFF by " + issuedBy);
+        }
+    }
+
+    private void startSmartTimer() {
+        stopSmartTimer();
+        // Check every 5 minutes (6000 ticks); back up only if files changed since last time.
+        smartTaskId = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, this::smartTick, 6000L, 6000L).getTaskId();
+    }
+    private void stopSmartTimer() {
+        if (smartTaskId != -1) { try { Bukkit.getScheduler().cancelTask(smartTaskId); } catch (Exception ignored) {} smartTaskId = -1; }
+    }
+
+    /** Periodic smart check: if the server files changed and no backup runs, take one. */
+    private void smartTick() {
+        if (!smartEnabled || running) return;
+        try {
+            long newest = latestMtime(scanFiles(serverRoot()));
+            if (newest > lastBackupMtime) {
+                plugin.getLogger().info("[Backup] Smart mode: change detected, backing up to " + smartDest);
+                running = true; cancelRequested = false;
+                runBackup(smartDest, "gdrive".equals(smartDest) ? smartToken : null, smartName, "smart", true);
+            }
+        } catch (Exception e) {
+            plugin.getLogger().fine("[Backup] Smart tick error: " + e.getMessage());
+        }
+    }
+
+    private void publishSmartState() {
+        try {
+            var ref = firebaseManager.getServerRef();
+            if (ref == null) return;
+            Map<String, Object> s = new HashMap<>();
+            s.put("enabled", smartEnabled);
+            s.put("dest", smartDest);
+            s.put("t", System.currentTimeMillis());
+            ref.child("backup").child("smart").setValueAsync(s);
+        } catch (Exception ignored) {}
     }
 
     /** Throws BackupCancelled if the dashboard asked to stop. */
     private void checkCancelled() {
         if (cancelRequested) throw new BackupCancelled();
-    }
-
-    /**
-     * Direct local download: archives the whole server root to a temp .zip and
-     * serves it over a tiny built-in HTTP server. The dashboard shows progress,
-     * then a "Download Backup (.zip)" link. Temp files older than 24h are purged.
-     */
-    public void startLocalBackup(String issuedBy) {
-        if (running) {
-            progress(0, "error", "هناك نسخة احتياطية قيد التنفيذ بالفعل.");
-            return;
-        }
-        running = true;
-        cancelRequested = false;
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-            try {
-                progress(1, "starting", "بدء النسخ الاحتياطي...");
-                Path root = serverRoot();
-                String stamp = new java.text.SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new java.util.Date());
-                String fileName = "voxelpanel-backup-" + stamp + ".zip";
-
-                // Store the archive in a dedicated, purged folder inside the plugin data dir.
-                Path dir = plugin.getDataFolder().toPath().resolve("backups");
-                Files.createDirectories(dir);
-                purgeOldBackups(dir);
-                Path archive = dir.resolve(fileName);
-
-                // 1) Archive (0..80% for local, since there's no upload phase).
-                clearFiles();
-                progress(2, "archiving", "أرشفة جذر السيرفر...");
-                long bytes = archiveServerRoot(root, archive);
-                clearFiles();
-
-                // 2) Hash (80..95%).
-                progress(85, "hashing", "حساب SHA-256...");
-                String sha256 = sha256Of(archive);
-
-                // 3) Publish a download link via the built-in HTTP server (95..100%).
-                progress(96, "linking", "تجهيز رابط التحميل...");
-                String token = BackupHttpServer.get(plugin).register(archive, fileName);
-                String url = BackupHttpServer.get(plugin).publicUrl(token);
-
-                Map<String, Object> result = new HashMap<>();
-                result.put("fileName", fileName);
-                result.put("mode", "local");
-                result.put("downloadUrl", url);
-                result.put("sha256", sha256);
-                result.put("size", bytes);
-                result.put("t", System.currentTimeMillis());
-                result.put("by", issuedBy);
-                var ref = firebaseManager.getServerRef();
-                if (ref != null) ref.child("backup").child("result").setValueAsync(result);
-                progress(100, "complete", "اكتمل النسخ الاحتياطي. الملف جاهز للتنزيل.");
-                if (plugin.getActivityLogger() != null) plugin.getActivityLogger().log("backup_local", fileName, issuedBy);
-            } catch (BackupCancelled c) {
-                clearFiles();
-                progress(0, "cancelled", "تم إنهاء العملية بواسطة المستخدم.");
-            } catch (Exception e) {
-                clearFiles();
-                plugin.getLogger().warning("[Backup] Local backup failed: " + e.getMessage());
-                progress(0, "error", "فشل النسخ الاحتياطي: " + (e.getMessage() != null ? e.getMessage() : "خطأ غير معروف"));
-            } finally {
-                running = false;
-                cancelRequested = false;
-            }
-        });
     }
 
     /** Deletes backup archives older than 24 hours to protect host disk space. */
@@ -220,30 +281,22 @@ public class BackupService {
         } catch (Exception ignored) {}
     }
 
-    /** Streams every file under root into a zip; returns the archive size in bytes. */
-    private long archiveServerRoot(Path root, Path archive) throws IOException {
+    /**
+     * Compresses the pre-scanned file list into one archive; returns the size.
+     * progressSpan/progressBase let the caller map archiving onto a % range
+     * (e.g. base=10, span=68 -> archiving reports 10..78%).
+     */
+    private long archiveFiles(Path root, java.util.List<Path> files, Path archive, int progressSpan, int progressBase) throws IOException {
         final Path archiveAbs = archive.toAbsolutePath().normalize();
-
-        // 1) Traverse first and fully close the walk stream, so lazy directory
-        //    iteration never interleaves with writes to the ZipOutputStream.
-        //    Files.walk itself is wrapped so a traversal error can't propagate raw.
-        java.util.List<Path> files = new java.util.ArrayList<>();
-        try (Stream<Path> s = Files.walk(root)) {
-            s.filter(p -> {
-                try { return Files.isRegularFile(p); } catch (Exception ignored) { return false; }
-            }).forEach(files::add);
-        } catch (Exception walkErr) {
-            plugin.getLogger().warning("[Backup] Directory walk warning: " + walkErr.getMessage());
-        }
         long total = Math.max(1, files.size());
         long done = 0;
 
         // Dedupe entry names (a duplicate makes putNextEntry throw).
         java.util.Set<String> usedNames = new java.util.HashSet<>();
 
-        // 2) ONE ZipOutputStream/Deflater for the whole archive, created fresh here
-        //    and owned solely by this try-with-resources. The compression level is
-        //    set ONCE (never mutated per-entry), and no inner code closes the stream.
+        // ONE ZipOutputStream/Deflater for the whole archive, created fresh here
+        // and owned solely by this try-with-resources. The compression level is
+        // set ONCE (never mutated per-entry), and no inner code closes the stream.
         final byte[] buffer = new byte[8192];
         try (OutputStream rawOut = Files.newOutputStream(archive);
              java.io.BufferedOutputStream bufferedOut = new java.io.BufferedOutputStream(rawOut, 1 << 16);
@@ -254,26 +307,21 @@ public class BackupService {
                 checkCancelled();   // safe stop point between files
                 done++;
 
-                // Resolve/skip decisions are wrapped so nothing here can throw out.
                 String rel;
                 long fileSize = 0;
                 try {
                     Path abs = p.toAbsolutePath().normalize();
-                    if (abs.equals(archiveAbs)) continue;                 // never archive our own output
+                    if (abs.equals(archiveAbs)) continue;
                     String fn = p.getFileName().toString();
-                    if (fn.equals("session.lock")) continue;              // volatile lock
+                    if (fn.equals("session.lock")) continue;
                     rel = root.relativize(p).toString().replace('\\', '/');
-                    if (rel.isEmpty() || !usedNames.add(rel)) continue;   // empties / duplicates
+                    if (rel.isEmpty() || !usedNames.add(rel)) continue;
                     try { fileSize = Files.size(p); } catch (Exception ignored) {}
                 } catch (Exception meta) {
                     plugin.getLogger().fine("[Backup] Skipped (meta) " + p + ": " + meta.getMessage());
                     continue;
                 }
 
-                // 3) Per-entry: putNextEntry -> stream bytes -> closeEntry.
-                //    A read failure on a locked/active file (logs, sockets) is caught
-                //    and the file is skipped with a warning; the entry is still closed
-                //    so the outer ZipOutputStream/Deflater stays valid and open.
                 boolean entryOpen = false;
                 try {
                     zos.putNextEntry(new ZipEntry(rel));
@@ -287,27 +335,22 @@ public class BackupService {
                             if (fileSize > 262144 && written - lastPush >= 400 * 1024) {
                                 lastPush = written;
                                 publishFile(rel, written, fileSize, false);
-                                if (cancelRequested) break;   // mid-file stop for huge files
+                                if (cancelRequested) break;
                             }
                         }
                     } catch (Exception readErr) {
-                        // Locked / active / vanished file — skip it, keep the archive valid.
                         plugin.getLogger().warning("[Backup] Skipped unreadable file " + rel + ": " + readErr.getMessage());
                     } finally {
-                        // Always close the entry we opened, exactly once. This closes
-                        // only the current entry, never the ZipOutputStream itself.
                         if (entryOpen) { zos.closeEntry(); entryOpen = false; }
                     }
                     publishFile(rel, fileSize, fileSize, true);
                 } catch (Exception entryErr) {
-                    // putNextEntry/closeEntry failed for this single file. Do NOT rethrow;
-                    // continue so one bad entry can't abort the whole backup.
                     plugin.getLogger().warning("[Backup] Skipped entry " + rel + ": " + entryErr.getMessage());
                     if (entryOpen) { try { zos.closeEntry(); } catch (Exception ignored) {} }
                 }
 
-                int pct = 2 + (int) Math.round((done / (double) total) * 58);
-                progress(Math.min(60, pct), "archiving", "أرشفة الملفات (" + done + "/" + total + ")...");
+                int pct = progressBase + (int) Math.round((done / (double) total) * progressSpan);
+                progress(Math.min(progressBase + progressSpan, pct), "archiving", "ضغط الملفات (" + done + "/" + total + ")...");
             }
         }
         return Files.size(archive);
